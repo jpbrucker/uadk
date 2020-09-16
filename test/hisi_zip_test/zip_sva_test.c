@@ -44,8 +44,8 @@ struct test_zip_pthread_dt {
 	int iteration;
 	void *src;
 	void *dst;
-	ulong src_len;
-	ulong dst_len;
+	__u32 src_len;
+	__u32 dst_len;
 	float com_time;
 	float decom_time;
 };
@@ -482,6 +482,7 @@ static void uninit_config(void)
 	free(ctx_conf.ctxs);
 }
 
+#define MAX_LEN (~0U)
 static int hizip_thread_test(FILE *source, FILE *dest,
 			     int thread_num, int alg_type, int op_type,
 			     int mode, int hw_flag, int iteration)
@@ -491,9 +492,10 @@ static int hizip_thread_test(FILE *source, FILE *dest,
 	int i, j, ret;
 	int cnt = 0;
 	void *file_buf;
-	int in_len, sz;
+	__u32 in_len, sz;
 	float tc = 0;
 	float speed;
+	ulong templen = 0;
 	float total_in = 0;
 	float total_out = 0;
 	int count = 0;
@@ -531,7 +533,12 @@ static int hizip_thread_test(FILE *source, FILE *dest,
 		test_thrds_data[i].iteration = iteration;
 		test_thrds_data[i].src = file_buf;
 		test_thrds_data[i].src_len = in_len;
-		test_thrds_data[i].dst_len = test_thrds_data[i].src_len * 8;
+		templen = (ulong)in_len * 8;
+		if(templen > MAX_LEN){
+			test_thrds_data[i].dst_len =  MAX_LEN;
+		} else {
+			test_thrds_data[i].dst_len =  templen;
+		}
 		test_thrds_data[i].src = calloc(1, test_thrds_data[i].src_len);
 		if (test_thrds_data[i].src == NULL)
 			goto buf_free;
