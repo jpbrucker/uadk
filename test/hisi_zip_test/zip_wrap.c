@@ -253,8 +253,8 @@ static void hizip_fini(struct wd_scheduler *sched)
  * This function compress memory buffer.
  */
 int hw_blk_compress(int alg_type, int blksize,
-		    unsigned char *dst, ulong *dstlen,
-		    unsigned char *src, ulong srclen)
+		    unsigned char *dst, __u32 *dstlen,
+		    unsigned char *src, __u32 srclen)
 {
 	handle_t h_sess;
 	struct wd_comp_sess_setup setup;
@@ -300,8 +300,8 @@ int hw_blk_compress(int alg_type, int blksize,
 }
 
 int hw_blk_decompress(int alg_type, int blksize,
-		      unsigned char *dst, ulong *dstlen,
-		      unsigned char *src, ulong srclen)
+		      unsigned char *dst, __u32 *dstlen,
+		      unsigned char *src, __u32 srclen)
 {
 	handle_t h_sess;
 	struct wd_comp_sess_setup setup;
@@ -349,8 +349,8 @@ int hw_blk_decompress(int alg_type, int blksize,
 }
 
 int hw_stream_compress(int alg_type, int blksize,
-		       unsigned char *dst, ulong *dstlen,
-		       unsigned char *src, ulong srclen)
+		       unsigned char *dst, __u32 *dstlen,
+		       unsigned char *src, __u32 srclen)
 {
 	handle_t h_sess;
 	struct wd_comp_sess_setup setup;
@@ -397,8 +397,8 @@ int hw_stream_compress(int alg_type, int blksize,
 
 
 int hw_stream_decompress(int alg_type, int blksize,
-		       unsigned char *dst, ulong *dstlen,
-		       unsigned char *src, ulong srclen)
+		       unsigned char *dst, __u32 *dstlen,
+		       unsigned char *src, __u32 srclen)
 {
 	handle_t h_sess;
 	struct wd_comp_sess_setup setup;

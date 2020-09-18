@@ -45,21 +45,21 @@ do { \
 
 /* for block interface */
 extern int hw_blk_compress(int alg_type, int blksize,
-			   unsigned char *dst, ulong *dstlen,
-			   unsigned char *src, ulong srclen);
+			   unsigned char *dst, __u32 *dstlen,
+			   unsigned char *src, __u32 srclen);
 
 extern int hw_blk_decompress(int alg_type, int blksize,
-			     unsigned char *dst, ulong *dstlen,
-			     unsigned char *src, ulong srclen);
+			     unsigned char *dst, __u32 *dstlen,
+			     unsigned char *src, __u32 srclen);
 
 /* for stream memory interface */
 extern int hw_stream_compress(int alg_type, int blksize,
-			      unsigned char *dst, ulong *dstlen,
-			      unsigned char *src, ulong srclen);
+			      unsigned char *dst, __u32 *dstlen,
+			      unsigned char *src, __u32 srclen);
 
 extern int hw_stream_decompress(int alg_type, int blksize,
-				unsigned char *dst, ulong *dstlen,
-				unsigned char *src, ulong srclen);
+				unsigned char *dst, __u32 *dstlen,
+				unsigned char *src, __u32 srclen);
 
 /* for stream file interface */
 extern int hw_stream_def(FILE *source, FILE *dest,  int alg_type);

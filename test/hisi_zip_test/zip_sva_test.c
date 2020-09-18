@@ -157,14 +157,19 @@ static int out_len;
 void zip_callback(void *req, void *param)
 {
 
-	struct wd_comp_req *preq = req;
-	struct user_comp_param *u_param = param;
 
-	u_param->out_len = preq->dst_len;
+	dbg("[%s],test entry \n", __func__);
+	struct wd_comp_req *preq = req;
+
+	if (!req || !param) {
+		WD_ERR("callback input NULL!\n");
+		return;
+
+	}
 	out_len = preq->dst_len;
 
-	dbg("[%s], cpu_id =%d consume=%d, produce=%d\n",
-	    __func__, u_param->cpu_id, preq->src_len, preq->dst_len);
+	dbg("[%s], consume=%d, produce=%d\n",
+	    __func__, preq->src_len, preq->dst_len);
 
 }
 
@@ -172,15 +177,8 @@ void zip_callback(void *req, void *param)
 void *zip_sys_async_test_poll_thread(void *args)
 {
 	int cpu_id;
-	cpu_set_t mask;
 	pid_t tid;
 	struct test_zip_pthread_dt *pdata = args;
-	struct user_comp_param u_param;
-	int i = pdata->iteration;
-	int loop;
-	handle_t h_sess;
-	struct wd_comp_sess_setup setup;
-	struct wd_comp_req req;
 	__u32 count = 0;
 	__u32 totalcount = 0;
 	int recnt = 0;
@@ -189,29 +187,32 @@ void *zip_sys_async_test_poll_thread(void *args)
 	cpu_id = pdata->cpu_id;
 	tid = gettid();
 
-	count = 0;
 
 	do {
+		count = 0;
+		dbg("poll start, expt =%d , have =%d!\n", pdata->iteration, totalcount);
 		ret = wd_comp_poll(pdata->iteration, &count);
 		if (ret < 0)
 			WD_ERR("poll fail! thread_id=%d, tid=%d. ret:%d\n", cpu_id, (int)tid, ret);
+		if (count > 0)
+			recnt = 0;
 		totalcount += count;
-		if (totalcount < pdata->iteration) {
+		if (totalcount < pdata->iteration * pdata->thread_num) {
 			usleep(100000);
 			dbg("poll thread now no task, expt =%d , have =%d!\n", pdata->iteration, totalcount);
 			if (++recnt > MAX_POLL_COUNTS) {
-				WD_ERR("poll thread now no task, timeout 1s, expt =%d , have =%d!\n", pdata->iteration, totalcount);
+				WD_ERR("poll thread  no task, 1s timeout, expt =%d , have =%d!\n", pdata->iteration * pdata->thread_num, totalcount);
 				break;
 			}
 		}
 
-	} while (totalcount < pdata->iteration);
+	} while (totalcount < pdata->iteration * pdata->thread_num);
 
 	WD_ERR("thread_id = %d, test poll end, count=%d\n", pdata->cpu_id, totalcount);
 
-	WD_ERR("%s(): test ! produce=%d\n", __func__, u_param.out_len);
+	pdata->dst_len = out_len;
 
-	pdata->dst_len = u_param.out_len;
+	return NULL;
 }
 
 void *zip_sys_async_test_thread(void *args)
@@ -266,7 +267,7 @@ therad_no_affinity:
 	req.dst = pdata->dst;
 	req.dst_len = pdata->dst_len;
 	req.op_type = pdata->op_type;
-	req.cb = zip_callback;
+	req.cb = (void *)zip_callback;
 	req.cb_param = &u_param;
 
 	dbg("%s:input req: src:%p, dst:%p,src_len: %d, dst_len:%d\n",
@@ -389,8 +390,6 @@ static int sched_two_poll_policy(handle_t h_sched_ctx, const struct wd_ctx_confi
 	int i, ret;
 	int recv_count = 0;
 	__u32 cnt[1024] = {0};
-
-	*count = 0;
 
 	for (i = 0; i < ctx_conf.ctx_num; i++) {
 		do {
