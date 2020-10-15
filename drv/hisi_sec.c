@@ -587,8 +587,17 @@ static struct wd_cipher_driver hisi_cipher_driver = {
 		.cipher_send	= hisi_sec_cipher_send,
 		.cipher_recv	= hisi_sec_cipher_recv,
 };
+static void __attribute__((constructor)) set_driver(void)		      
+{									      
+	wd_cipher_set_driver(&hisi_cipher_driver);					      
+#ifdef WD_STATIC_DRV
+	printf("WD_STATIC_DRV\n");
+#else
+	printf("no WD_STATIC_DRV\n");
+#endif
+}
 
-WD_CIPHER_SET_DRIVER(hisi_cipher_driver);
+//WD_CIPHER_SET_DRIVER(hisi_cipher_driver);
 
 static int fill_digest_bd2_alg(struct wd_digest_msg *msg,
 		struct hisi_sec_sqe *sqe)

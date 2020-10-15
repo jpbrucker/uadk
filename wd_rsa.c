@@ -90,9 +90,6 @@ static void __attribute__((constructor)) wd_rsa_open_driver(void)
 {
 	void *driver;
 
-	driver = dlopen("libhisi_hpre.so", RTLD_NOW);
-	if (!driver)
-		WD_ERR("Fail to open libhisi_hpre.so\n");
 }
 #endif
 

@@ -57,10 +57,8 @@ static void wd_comp_set_static_drv(void)
 static void __attribute__((constructor)) wd_comp_open_driver(void)
 {
 	void *driver;
+	printf("gzf %s\n", __func__);
 
-	driver = dlopen("libhisi_zip.so", RTLD_NOW);
-	if (!driver)
-		WD_ERR("Fail to open libhisi_zip.so\n");
 }
 #endif
 

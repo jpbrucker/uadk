@@ -52,10 +52,7 @@ static void wd_aead_set_static_drv(void)
 static void __attribute__((constructor)) wd_aead_open_driver(void)
 {
 	void *driver;
-
-	driver = dlopen("libhisi_sec.so", RTLD_NOW);
-	if (!driver)
-		WD_ERR("failed to open libhisi_sec.so\n");
+	printf("gzf %s g_wd_aead_setting=%p, g_wd_aead_setting.driver=0x%x, pid=%d\n", __func__, &g_wd_aead_setting, g_wd_aead_setting.driver, getpid());
 }
 #endif
 

@@ -47,11 +47,7 @@ static void wd_digest_set_static_drv(void)
 static void __attribute__((constructor)) wd_digest_open_driver(void)
 {
 	void *driver;
-
-	/* Fix me: vendor driver should be put in /usr/lib/wd/ */
-	driver = dlopen("libhisi_sec.so", RTLD_NOW);
-	if (!driver)
-		WD_ERR("fail to open libhisi_sec.so\n");
+	printf("gzf %s g_wd_digest_setting=%p, g_wd_digest_setting.driver=0x%x, pid=%d\n", __func__, &g_wd_digest_setting, g_wd_digest_setting.driver, getpid());
 }
 #endif
 

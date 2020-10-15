@@ -4,6 +4,8 @@
 #include "wd_cipher.h"
 #include "include/drv/wd_cipher_drv.h"
 #include "wd_util.h"
+#include <sys/types.h>
+#include <unistd.h>
 
 #define XTS_MODE_KEY_DIVISOR	2
 #define SM4_KEY_SIZE		16
@@ -44,20 +46,27 @@ static void wd_cipher_set_static_drv(void)
 	g_wd_cipher_setting.driver = &wd_cipher_hisi_cipher_driver;
 }
 #else
+static void __attribute__((constructor)) gzf_test(void)
+{
+	printf("gzf %s g_wd_cipher_setting=%p, g_wd_cipher_setting.driver=0x%x, pid=%d\n", __func__, &g_wd_cipher_setting, g_wd_cipher_setting.driver, getpid());
+
+}
 static void __attribute__((constructor)) wd_cipher_open_driver(void)
 {
 	void *driver;
+	printf("gzf %s g_wd_cipher_setting=%p, g_wd_cipher_setting.driver=0x%x, pid=%d\n", __func__, &g_wd_cipher_setting, g_wd_cipher_setting.driver, getpid());
+//	driver = dlopen("libhisi_sec.so", RTLD_NOW);
+//	if (driver == NULL)
+//		printf("dlopen - %s\n", dlerror());
 
 	/* vendor driver should be put in /usr/lib/wd/ */
-	driver = dlopen("libhisi_sec.so", RTLD_NOW);
-	if (!driver)
-		WD_ERR("fail to open libhisi_sec.so\n");
 }
 #endif
 
 void wd_cipher_set_driver(struct wd_cipher_driver *drv)
 {
 	g_wd_cipher_setting.driver = drv;
+	printf("gzf %s g_wd_cipher_setting=%p, g_wd_cipher_setting.driver=0x%x, pid=%d\n", __func__, &g_wd_cipher_setting, g_wd_cipher_setting.driver, getpid());
 }
 
 static int is_des_weak_key(const __u64 *key)
@@ -190,6 +199,8 @@ int wd_cipher_init(struct wd_ctx_config *config, struct wd_sched *sched)
 	void *priv;
 	int ret;
 
+	printf("gzf %s g_wd_cipher_setting=%p, g_wd_cipher_setting.driver=0x%x, pid=%d\n", __func__, &g_wd_cipher_setting, g_wd_cipher_setting.driver, getpid());
+
 	if (g_wd_cipher_setting.config.ctx_num) {
 		WD_ERR("Cipher have initialized.\n");
 		return 0;
@@ -260,6 +271,8 @@ out:
 void wd_cipher_uninit(void)
 {
 	void *priv = g_wd_cipher_setting.priv;
+
+	printf("gzf %s g_wd_cipher_setting=%p, g_wd_cipher_setting.driver=0x%x, pid=%d\n", __func__, &g_wd_cipher_setting, g_wd_cipher_setting.driver, getpid());
 
 	if (!priv) {
 		g_wd_cipher_setting.driver->exit(priv);
