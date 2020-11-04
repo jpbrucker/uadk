@@ -298,4 +298,79 @@ extern void wd_free_list_accels(struct uacce_dev_list *list);
  */
 extern int wd_ctx_set_io_cmd(handle_t h_ctx, unsigned long cmd, void *arg);
 
+enum wd_page_type {
+	WD_HUGE_PAGE = 0,
+	WD_NORMAL_PAGE,
+};
+
+/*
+ * struct wd_mempool_stats - Use to dump statistics info about mempool
+ * @is_huge_page: 0 huge page, 1 mmap + pin.
+ * @page_size: Page size.
+ * @pape_num: Page numbers in mempool.
+ * @blk_size: Huge page case, small blocks will be made in each huge page,
+ *	      this is the size of small block. Mmap + pin case, same with
+ *	      page size.
+ * @blk_num: Number of above small blocks in huge page case. Same with page
+ *	     number in mmap + pin case.
+ * @free_blk_num: Number of free blk.
+ * @blk_usage_rate: There may be memory fragmentation. This shows the rate
+ *                  of usage of blk in mempool. When blockpool allocates
+ *                  continuous blk in mempool, it may fail as no continuous
+ *                  blk in mempool, blk_usage_rate can help to show current
+ *                  state. e.g. 30 is 30%.
+ */
+struct wd_mempool_stats {
+	enum wd_page_type page_type;
+	unsigned long page_size;
+	unsigned long page_num;
+	unsigned long blk_size;
+	unsigned long blk_num;
+	unsigned long free_blk_num;
+	unsigned long blk_usage_rate;
+};
+
+/*
+ * struct wd_blockpool_stats - Use to dump statistics info about blockpool
+ * @block_size: Block size.
+ * @block_num: Number of blocks.
+ * @free_block_num: Number of free blocks.
+ * @block_usage_rate: Block usage rate, e.g. 30 is 30%
+ * @mem_waste_rate: When blockpool allocate memory from mempool, it may waste
+ *		    some memory as below figure. This is the waste rate,
+ *		    e.g. 30 is 30%.
+ *    +--+--+--+--+                    +-------------------+
+ *    |  |  |  |  |    waste memory    |                   |    waste memory
+ *    +--+--+--+--+  /                 +-------------------+  /
+ *                  /                                        /
+ *    +-------------+                  +-----+-----+-----+-----+
+ *    |             |                  |     |     |     |     |
+ *    +-------------+                  +-----+-----+-----+-----+
+ */
+struct wd_blockpool_stats {
+	unsigned long block_size;
+	unsigned long block_num;
+	unsigned long free_block_num;
+	unsigned long block_usage_rate;
+	unsigned long mem_waste_rate;
+};
+
+extern void *wd_blockpool_alloc(handle_t blockpool);
+
+extern void wd_blockpool_free(handle_t blockpool, void *addr);
+
+extern handle_t wd_blockpool_create(handle_t mempool, size_t block_size,
+				    size_t block_num);
+
+extern void wd_blockpool_destory(handle_t blockpool);
+
+extern handle_t wd_mempool_create(size_t size, int node);
+
+extern void wd_mempool_destory(handle_t mempool);
+
+extern void wd_mempool_stats(handle_t mempool, struct wd_mempool_stats *stats);
+
+extern void wd_blockpool_stats(handle_t blockpool,
+			       struct wd_blockpool_stats *stats);
+
 #endif

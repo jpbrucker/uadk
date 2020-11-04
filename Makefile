@@ -22,7 +22,7 @@ APPDIR		:= /usr/local/bin
 INCDIR		:= /usr/local/include/uadk
 DYNAPP		:= test_hisi_sec test_hisi_hpre zip_sva_perf
 STCAPP		:= test_hisi_sec.static test_hisi_hpre.static		\
-		   zip_sva_perf.static
+		   zip_sva_perf.static wd_mempool_test
 TARGET_DYNLIB	:= libwd.so.$(VERSION) libwd_crypto.so.$(VERSION)	\
 		   libwd_comp.so.$(VERSION) libhisi_sec.so.$(VERSION)	\
 		   libhisi_hpre.so.$(VERSION) libhisi_zip.so.$(VERSION)
@@ -54,7 +54,7 @@ $(SUBDIRS):
 
 all: $(DYNOBJS) $(STCOBJS) $(TARGET_DYNLIB) $(TARGET_STCLIB) $(DYNAPP)	\
      $(STCAPP)
-libwd.so.$(VERSION): wd.o
+libwd.so.$(VERSION): wd.o wd_mempool.o
 	$(CC) $(DYNCFLAGS) -o $@ $?
 	$(LN) libwd.so.$(VERSION) libwd.so
 
@@ -90,7 +90,7 @@ zip_sva_perf: test/hisi_zip_test/test_sva_perf.o test/sched_sample.o	\
 	$(CC) -Wl,-rpath=/usr/local/lib -o $@ $^ -L. -lwd -lwd_comp	\
 		-lpthread -lm -lz
 
-libwd.a: wd.lo
+libwd.a: wd.lo wd_mempool.lo
 	$(AR) $(ARFLAGS) $@ $^
 
 libwd_crypto.a: wd_aead.lo wd_cipher.lo wd_digest.lo wd_util.lo		\
@@ -120,6 +120,9 @@ zip_sva_perf.static: test/hisi_zip_test/test_sva_perf.lo test/sched_sample.lo	\
 		     test/hisi_zip_test/test_lib.lo				\
 		     test/hisi_zip_test/sva_file_test.lo
 	$(CC) -o $@ $^ libwd.a libwd_comp.a libhisi_zip.a -lpthread -lm -lz
+
+wd_mempool_test: test/wd_mempool_test.lo wd_mempool.lo
+	$(CC) -o $@ $^ --static -lnuma -lwd
 
 %.o: %.c
 	$(CC) $(INCLUDES) $(DYNCFLAGS) -c $< -o $@
