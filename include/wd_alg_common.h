@@ -31,10 +31,6 @@ extern FILE *flog_fd;
 #define likely(x)       __builtin_expect(!!(x), 1)
 #define unlikely(x)     __builtin_expect(!!(x), 0)
 
-struct wd_lock {
-	__u32 lock;
-};
-
 enum wd_ctx_mode {
 	CTX_MODE_SYNC = 0,
 	CTX_MODE_ASYNC,
@@ -113,17 +109,5 @@ struct wd_sched {
 	int (*poll_policy)(handle_t h_sched_ctx, __u32 expect, __u32 *count);
 	handle_t h_sched_ctx;
 };
-
-static inline void wd_spinlock(struct wd_lock *lock)
-{
-	while (__atomic_test_and_set(&lock->lock, __ATOMIC_ACQUIRE))
-		while (__atomic_load_n(&lock->lock, __ATOMIC_RELAXED));
-}
-
-static inline void wd_unspinlock(struct wd_lock *lock)
-{
-	__atomic_clear(&lock->lock, __ATOMIC_RELEASE);
-}
-
 
 #endif
