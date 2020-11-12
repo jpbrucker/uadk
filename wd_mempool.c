@@ -8,6 +8,7 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/param.h>
 #include <sys/queue.h>
 #include "wd.h"
 
@@ -43,9 +44,11 @@ static inline void wd_unspinlock(struct wd_lock *lock)
 }
 
 /*
- * one memzone includes some continuous block in mempool,
- * for huge page, block size is blk_size in mempool, for mmap + pin,
- * block size is page size.
+ * one memzone may include some continuous block in mempool
+ * @addr: Base address of blocks in this memzone
+ * @blk_num: Number of blocks in this memzone
+ * @begin: Begin position in mempool bitmap
+ * @end: End position in mempool bitmap
  */
 struct memzone {
 	void *addr;
@@ -169,11 +172,6 @@ static void destory_bitmap(struct bitmap *bm)
 	free(bm);
 }
 
-static unsigned long min(unsigned long a, unsigned long b)
-{
-	return a < b ? a : b;
-}
-
 /* This function copies from kernel/lib/find_bit.c */
 static unsigned long _find_next_bit(unsigned long *map, unsigned long bits,
 				    unsigned long start, unsigned long invert)
@@ -200,7 +198,7 @@ static unsigned long _find_next_bit(unsigned long *map, unsigned long bits,
 		tmp ^= invert;
 	}
 
-	return min(start + wd_ffs(tmp), bits);
+	return MIN(start + wd_ffs(tmp), bits);
 }
 
 static unsigned long find_next_zero_bit(struct bitmap *bm, unsigned long start)
@@ -339,7 +337,8 @@ static int alloc_mem_multi_in_one(struct mempool *mp, struct blkpool *bp)
 		mp->free_blk_num--;
 
 		if (alloc_memzone(bp, mp->addr + pos * mp->blk_size,
-				  blk_num_per_memblk, pos, pos) < 0) {
+				  MIN(blk_num, blk_num_per_memblk),
+				  pos, pos) < 0) {
 			ret = -ENOMEM;
 			goto err_clear_bit;
 		}
@@ -444,7 +443,7 @@ handle_t wd_blockpool_create(handle_t mempool, size_t block_size,
 
 	if (!mp) {
 		WD_ERR("Mempool is NULL\n");
-		return -EINVAL;
+		return 0;
 	}
 
 	/* fix me: this is wrong as there are multiple users */
@@ -459,9 +458,9 @@ handle_t wd_blockpool_create(handle_t mempool, size_t block_size,
 		return 0;
 
 	bp->blk_elem = malloc(sizeof(void *) * block_num);
-		if (!bp->blk_elem) {
-			free(bp);
-			return 0;
+	if (!bp->blk_elem) {
+		free(bp);
+		return 0;
 	}
 
 	bp->top = block_num;
@@ -700,19 +699,21 @@ static int alloc_mem_and_pin(struct mempool *mp)
 	p = mmap(NULL, real_size, PROT_READ | PROT_WRITE, MAP_PRIVATE |
 		 MAP_ANONYMOUS, -1, 0);
 	if (p == MAP_FAILED) {
-		WD_ERR("fail to do mmap\n");
+		WD_ERR("Fail to do mmap\n");
 		return -1;
 	}
 
 	/* fixme: I am not sure node_mask and max_node's value are right here */
 	ret = mbind(p, real_size, MPOL_BIND, &node_mask, max_node, 0);
 	if (ret < 0) {
+		WD_ERR("Fail to do mbind, maybe there is no memory in NUMA node %d\n",
+		       node);
 		goto err_unmap;
 	}
 
 	fd = open("/dev/uacce_ctrl", O_RDWR);
 	if (fd < 0) {
-		WD_ERR("fail to open\n");
+		WD_ERR("Fail to open\n");
 		ret = -errno;
 		goto err_unmap;
 	}
@@ -721,7 +722,7 @@ static int alloc_mem_and_pin(struct mempool *mp)
 	addr.size = real_size;
 	ret = ioctl(fd, UACCE_CMD_PIN, &addr);
 	if (ret < 0) {
-		WD_ERR("fail to pin\n");
+		WD_ERR("Fail to pin\n");
 		goto err_close;
 	}
 
@@ -764,6 +765,7 @@ static int alloc_mempool_memory(struct mempool *mp)
 
 	ret = alloc_mem_and_pin(mp);
 	if (ret < 0) {
+		WD_ERR("Fail to mmap and pin\n");
 		free_hugepage_mem(mp);
 		return -ENOMEM;
 	}
