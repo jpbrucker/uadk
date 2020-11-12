@@ -376,11 +376,12 @@ static int alloc_mem_one_need_multi(struct mempool *mp, struct blkpool *bp)
 			goto err_free_memzone;
 		}
 		set_bit(mp->bitmap, pos_first);
-		pos = pos_first++;
+		pos = pos_first + 1;
 
 		for (i = 0; i < memblk_num_per_blk - 1; i++) {
-			if (!test_and_set_bit(mp->bitmap, pos++))
+			if (!test_and_set_bit(mp->bitmap, pos++)) {
 				break;
+			}
 		}
 
 		if (i == memblk_num_per_blk - 1) {
