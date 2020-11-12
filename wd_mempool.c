@@ -59,18 +59,21 @@ struct memzone {
 };
 TAILQ_HEAD(memzone_list, memzone);
 
+/*
+ * @blk_elem: All the block unit addrs saved in blk_elem
+ * @depth: The block pool deph, stack depth
+ * @top: The stack top pos for blk_elem
+ * @blk_size: The size of one block
+ * @mp: Record from which mempool
+ * @mz_list: List of memzone allocated from mempool
+ * @free_block_num: Number of free blocks currently
+ */
 struct blkpool {
-	/* all the block unit addrs saved in blk_elem */
 	void **blk_elem;
-	/* the block pool deph, stack depth */
 	size_t depth;
-	/* the stack top pos for blk_elem */
 	size_t top;
-	/* the size of one block */
 	size_t blk_size;
-	/* record from which mempool */
 	struct mempool *mp;
-	/* list of memzone allocated from mempool */
 	struct memzone_list mz_list;
 	unsigned long free_block_num;
 };

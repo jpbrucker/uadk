@@ -67,13 +67,13 @@ static void parse_cmd_line(int argc, char *argv[], struct test_option *opt)
 static void dump_mp_bp(struct wd_mempool_stats *mp_s,
 		       struct wd_blockpool_stats *bp_s)
 {
-	printf("mp page_type        : %d\n", mp_s->page_type);
+	printf("mp page_type        : %s\n", mp_s->page_type ? "pin" : "hugepage");
 	printf("mp page_size        : %lu\n", mp_s->page_size);
 	printf("mp page_num         : %lu\n", mp_s->page_num);
 	printf("mp blk_size         : %lu\n", mp_s->blk_size);
 	printf("mp blk_num          : %lu\n", mp_s->blk_num);
 	printf("mp free_blk_num     : %lu\n", mp_s->free_blk_num);
-	printf("mp blk_usage_rate   : %lu%%\n", mp_s->blk_usage_rate);
+	printf("mp blk_usage_rate   : %lu%%\n\n", mp_s->blk_usage_rate);
 
 	printf("bp block_size       : %lu\n", bp_s->block_size);
 	printf("bp block_num        : %lu\n", bp_s->block_num);
