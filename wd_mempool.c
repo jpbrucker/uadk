@@ -25,6 +25,8 @@
 #define __round_mask(x, y)		((__typeof__(x))((y)-1))
 #define round_down(x, y)		((x) & ~__round_mask(x, y))
 
+#define __maybe_unused			__attribute__((__unused__))
+
 struct wd_lock {
 	__u32 lock;
 };
@@ -206,7 +208,8 @@ static unsigned long find_next_zero_bit(struct bitmap *bm, unsigned long start)
 	return _find_next_bit(bm->map, bm->bits, start, ~0UL);
 }
 
-static unsigned long find_next_bit(struct bitmap *bm, unsigned long start)
+static unsigned long __maybe_unused find_next_bit(struct bitmap *bm,
+						  unsigned long start)
 {
 	return _find_next_bit(bm->map, bm->bits, start, 0UL);
 }
@@ -309,7 +312,7 @@ static void free_mem_to_mempool(struct blkpool *bp)
 	struct memzone *iter;
 	int i;
 
-	while (iter = TAILQ_LAST(&bp->mz_list, memzone_list)) {
+	while ((iter = TAILQ_LAST(&bp->mz_list, memzone_list))) {
 		for (i = iter->begin; i <= iter->end; i++)
 			clear_bit(mp->bitmap, i);
 		mp->free_blk_num += iter->end - iter->begin + 1;
@@ -324,7 +327,6 @@ static int alloc_mem_multi_in_one(struct mempool *mp, struct blkpool *bp)
 {
 	int blk_num_per_memblk = mp->blk_size / bp->blk_size;
 	int blk_num = bp->depth;
-	struct memzone *zone;
 	int start = 0, pos, ret;
 
 	while (blk_num > 0) {
@@ -366,7 +368,6 @@ static int alloc_mem_one_need_multi(struct mempool *mp, struct blkpool *bp)
 				 (bp->blk_size % mp->blk_size ? 1 : 0);
 	int start = 0, pos_first, pos, pos_last, i, j;
 	int blk_num = bp->depth;
-	struct memzone *zone;
 	int ret;
 
 	while (blk_num > 0) {
@@ -440,7 +441,6 @@ handle_t wd_blockpool_create(handle_t mempool, size_t block_size,
 {
 	struct mempool *mp = (struct mempool*)mempool;
 	struct blkpool *bp;
-	size_t i;
 
 	if (!mp) {
 		WD_ERR("Mempool is NULL\n");
@@ -512,11 +512,11 @@ static int get_value_from_sysfs(char *path)
 static int get_hugepage_info_per_type(struct dirent *hp_dir,
 				      struct sys_hugepage_config *cfg)
 {
-	unsigned long size, nr_pages, free_pages;
 	char path[MAX_ATTR_STR_SIZE];
 	char *name = hp_dir->d_name;
+	unsigned long size;
 	char *size_pos;
-	int fd, ret;
+	int ret;
 
 	size_pos = index(name, '-');
 	if (!size_pos)
@@ -596,7 +596,7 @@ static int get_hugepage_info(struct mempool *mp)
 err_free:
 	free(tmp);
 err_free_list:
-	while (tmp = TAILQ_LAST(&mp->hp_list, sys_hugepage_list)) {
+	while ((tmp = TAILQ_LAST(&mp->hp_list, sys_hugepage_list))) {
 		TAILQ_REMOVE(&mp->hp_list, tmp, node);
 		free(tmp);
 	}
@@ -607,7 +607,7 @@ static void put_hugepage_info(struct mempool *mp)
 {
 	struct sys_hugepage_config *tmp;
 
-	while (tmp = TAILQ_LAST(&mp->hp_list, sys_hugepage_list)) {
+	while ((tmp = TAILQ_LAST(&mp->hp_list, sys_hugepage_list))) {
 		TAILQ_REMOVE(&mp->hp_list, tmp, node);
 		free(tmp);
 	}
@@ -617,7 +617,7 @@ static int alloc_mem_from_hugepage(struct mempool *mp)
 {
 	unsigned long max_node = numa_max_node() + 1;
 	unsigned long node_mask = 1 << mp->node;
-	struct sys_hugepage_config *proper, *iter;
+	struct sys_hugepage_config *iter;
 	unsigned long bits = sizeof(iter->page_size) * 8;
 	size_t page_num, real_size;
 	int ret, flags = 0;
@@ -632,9 +632,7 @@ static int alloc_mem_from_hugepage(struct mempool *mp)
 		if (iter->page_size * iter->free_num >= mp->size)
 			break;
 	}
-	if (iter) {
-		proper = iter;
-	} else {
+	if (!iter) {
 		WD_ERR("Fail to find proper hugepage\n");
 		ret = -ENOMEM;
 		goto err_put_info;
@@ -675,10 +673,10 @@ static int alloc_mem_from_hugepage(struct mempool *mp)
 
 	return 0;
 
-err_put_info:
-	put_hugepage_info(mp);
 err_unmap:
 	munmap(p, real_size);
+err_put_info:
+	put_hugepage_info(mp);
 	return ret;
 }
 

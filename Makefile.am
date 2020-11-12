@@ -17,7 +17,8 @@ include_HEADERS = include/wd.h include/wd_cipher.h include/wd_comp.h \
 lib_LTLIBRARIES=libwd.la libwd_comp.la libwd_crypto.la libhisi_zip.la \
 		libhisi_hpre.la libhisi_sec.la
 
-libwd_la_SOURCES=wd.c wd.h
+libwd_la_SOURCES=wd.c wd_mempool.c wd.h 
+libwd_la_LIBADD= -lnuma
 
 libwd_comp_la_SOURCES=wd_comp.c wd_comp.h wd_comp_drv.h wd_util.c wd_util.h
 libwd_comp_la_LIBADD= -lwd -ldl

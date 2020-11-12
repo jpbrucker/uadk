@@ -88,8 +88,6 @@ int main(int argc, char *argv[])
 	struct wd_mempool_stats mp_stats = {0};
 	struct test_option opt = {0};
 	handle_t mp, bp;
-	int ret = 0, i;
-	char *p;
 
 	parse_cmd_line(argc, argv, &opt);
 
