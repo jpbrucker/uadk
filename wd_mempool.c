@@ -771,9 +771,6 @@ static int alloc_mempool_memory(struct mempool *mp)
 		return -ENOMEM;
 	}
 
-	/* Let's set it as 4KB temporarily */
-	mp->blk_size = 4 << 10;
-
 	return 0;
 }
 
@@ -820,6 +817,8 @@ handle_t wd_mempool_create(size_t size, int node)
 	}
 	mp->node = node;
 	mp->size = size;
+	/* Let's set it as 4KB temporarily */
+	mp->blk_size = 4 << 10;
 
 	ret = alloc_mempool_memory(mp);
 	if (ret < 0) {
