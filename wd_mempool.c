@@ -76,6 +76,7 @@ struct blkpool {
 	struct mempool *mp;
 	struct memzone_list mz_list;
 	unsigned long free_block_num;
+	struct wd_lock lock;
 };
 
 struct sys_hugepage_config {
@@ -104,6 +105,7 @@ struct mempool {
 	int fd;
 	void *addr;
 	size_t size;
+	size_t real_size;
 	struct bitmap *bitmap;
 	/* use self-define lock to avoid to use pthread lib in libwd */
 	struct wd_lock lock;
@@ -261,14 +263,18 @@ inline static size_t wd_get_page_size(void)
 void *wd_blockpool_alloc(handle_t blockpool)
 {
 	struct blkpool *bp = (struct blkpool*)blockpool;
+	void *p;
 
 	if (!bp)
 		return NULL;
 
 	if (bp->top > 0) {
+		wd_spinlock(&bp->lock);
 		bp->top--;
 		bp->free_block_num--;
-		return bp->blk_elem[bp->top];
+		p = bp->blk_elem[bp->top];
+		wd_unspinlock(&bp->lock);
+		return p;
 	}
 
 	return NULL;
@@ -282,9 +288,11 @@ void wd_blockpool_free(handle_t blockpool, void *addr)
 		return;
 
 	if (bp->top < bp->depth) {
+		wd_spinlock(&bp->lock);
 		bp->blk_elem[bp->top] = addr;
 		bp->top++;
 		bp->free_block_num++;
+		wd_unspinlock(&bp->lock);
 	}
 }
 
@@ -311,12 +319,15 @@ static void free_mem_to_mempool(struct blkpool *bp)
 {
 	struct mempool *mp = bp->mp;
 	struct memzone *iter;
+	size_t blks;
 	int i;
 
 	while ((iter = TAILQ_LAST(&bp->mz_list, memzone_list))) {
 		for (i = iter->begin; i <= iter->end; i++)
 			clear_bit(mp->bitmap, i);
-		mp->free_blk_num += iter->end - iter->begin + 1;
+		blks = iter->end - iter->begin + 1;
+		mp->free_blk_num += blks;
+		mp->real_size += blks * mp->blk_size;
 
 		TAILQ_REMOVE(&bp->mz_list, iter, node);
 		free(iter);
@@ -337,7 +348,6 @@ static int alloc_mem_multi_in_one(struct mempool *mp, struct blkpool *bp)
 			goto err_free_memzone;
 		}
 		set_bit(mp->bitmap, pos);
-		mp->free_blk_num--;
 
 		if (alloc_memzone(bp, mp->addr + pos * mp->blk_size,
 				  MIN(blk_num, blk_num_per_memblk),
@@ -346,6 +356,8 @@ static int alloc_mem_multi_in_one(struct mempool *mp, struct blkpool *bp)
 			goto err_clear_bit;
 		}
 
+		mp->free_blk_num--;
+		mp->real_size -= mp->blk_size;
 		blk_num -= blk_num_per_memblk;
 		start = pos++;
 	}
@@ -353,7 +365,6 @@ static int alloc_mem_multi_in_one(struct mempool *mp, struct blkpool *bp)
 	return 0;
 
 err_clear_bit:
-	mp->free_blk_num++;
 	clear_bit(mp->bitmap, pos);
 err_free_memzone:
 	free_mem_to_mempool(bp);
@@ -405,6 +416,7 @@ static int alloc_mem_one_need_multi(struct mempool *mp, struct blkpool *bp)
 		}
 
 		mp->free_blk_num -= memblk_num_per_blk;
+		mp->real_size -= mp->blk_size * memblk_num_per_blk;
 		start = pos;
 	}
 
@@ -420,6 +432,12 @@ err_free_memzone:
 
 static int alloc_mem_from_mempool(struct mempool *mp, struct blkpool *bp)
 {
+	if (bp->blk_size * bp->depth > mp->real_size) {
+		WD_ERR("Fail to create blockpool as mempool too small: %lu\n",
+		       mp->real_size);
+		return -ENOMEM;
+	}
+
 	TAILQ_INIT(&bp->mz_list);
 
 	if (mp->blk_size >= bp->blk_size)
@@ -428,15 +446,21 @@ static int alloc_mem_from_mempool(struct mempool *mp, struct blkpool *bp)
 	return alloc_mem_one_need_multi(mp, bp);
 }
 
-static void init_blkpool_elem(struct blkpool *bp)
+static int init_blkpool_elem(struct blkpool *bp)
 {
 	struct memzone *iter;
 	int i, index = 0;
+
+	bp->blk_elem = calloc(bp->depth, sizeof(void *));
+	if (!bp->blk_elem)
+		return -ENOMEM;
 
 	TAILQ_FOREACH(iter, &bp->mz_list, node) {
 		for (i = 0; i < iter->blk_num; i++)
 			bp->blk_elem[index++] = iter->addr + i * bp->blk_size;
 	}
+
+	return 0;
 }
 
 handle_t wd_blockpool_create(handle_t mempool, size_t block_size,
@@ -444,47 +468,55 @@ handle_t wd_blockpool_create(handle_t mempool, size_t block_size,
 {
 	struct mempool *mp = (struct mempool*)mempool;
 	struct blkpool *bp;
+	int ret;
 
 	if (!mp) {
 		WD_ERR("Mempool is NULL\n");
 		return 0;
 	}
 
-	/* fix me: this is wrong as there are multiple users */
-	if (block_size * block_num > mp->size) {
-		WD_ERR("Fail to create blockpool as mempool too small: %lu\n",
-		       mp->size);
-		return 0;
-	}
-
-	bp = malloc(sizeof(struct blkpool));
+	bp = calloc(1, sizeof(struct blkpool));
 	if (!bp)
 		return 0;
-
-	bp->blk_elem = malloc(sizeof(void *) * block_num);
-	if (!bp->blk_elem) {
-		free(bp);
-		return 0;
-	}
 
 	bp->top = block_num;
 	bp->depth = block_num;
 	bp->blk_size = block_size;
+	bp->free_block_num = block_num;
 	bp->mp = mp;
 
-	alloc_mem_from_mempool(mp, bp);
-	init_blkpool_elem(bp);
+	wd_spinlock(&mp->lock);
+	ret = alloc_mem_from_mempool(mp, bp);
+	wd_unspinlock(&mp->lock);
+	if (ret < 0) {
+		WD_ERR("Fail to allocate memory from mempool\n");
+		goto err_free_bp;
+	}
 
-	bp->free_block_num = block_num;
+	ret = init_blkpool_elem(bp);
+	if (ret < 0) {
+		WD_ERR("Fail to init blockpool\n");
+		goto err_free_mem;
+	}
 
 	return (handle_t)bp;
+
+err_free_mem:
+	wd_spinlock(&mp->lock);
+	free_mem_to_mempool(bp);
+	wd_unspinlock(&mp->lock);
+err_free_bp:
+	free(bp);
+	return 0;
 }
 
 void wd_blockpool_destory(handle_t blockpool)
 {
 	struct blkpool *bp = (struct blkpool *)blockpool;
 
+	wd_spinlock(&bp->mp->lock);
 	free_mem_to_mempool(bp);
+	wd_unspinlock(&bp->mp->lock);
 	free(bp->blk_elem);
 	free(bp);
 }
@@ -673,6 +705,7 @@ static int alloc_mem_from_hugepage(struct mempool *mp)
 	mp->page_size = iter->page_size;
 	mp->page_num = page_num;
 	mp->addr = p;
+	mp->real_size = real_size;
 
 	return 0;
 
@@ -735,6 +768,7 @@ static int alloc_mem_and_pin(struct mempool *mp)
 	mp->page_num = page_num;
 	mp->fd = fd;
 	mp->addr = p;
+	mp->real_size = real_size;
 
 	return 0;
 
@@ -856,6 +890,8 @@ void wd_mempool_stats(handle_t mempool, struct wd_mempool_stats *stats)
 {
 	struct mempool *mp = (struct mempool *)mempool;
 
+	wd_spinlock(&mp->lock);
+
 	stats->page_type = mp->page_type;
 	stats->page_size = mp->page_size;
 	stats->page_num = mp->page_num;
@@ -864,6 +900,8 @@ void wd_mempool_stats(handle_t mempool, struct wd_mempool_stats *stats)
 	stats->free_blk_num = mp->free_blk_num;
 	stats->blk_usage_rate = (stats->blk_num - mp->free_blk_num) * 100 /
 				stats->blk_num;
+
+	wd_unspinlock(&mp->lock);
 }
 
 void wd_blockpool_stats(handle_t blockpool, struct wd_blockpool_stats *stats)
@@ -871,6 +909,8 @@ void wd_blockpool_stats(handle_t blockpool, struct wd_blockpool_stats *stats)
 	struct blkpool *bp = (struct blkpool*)blockpool;
 	unsigned long size = 0;
 	struct memzone *iter;
+
+	wd_spinlock(&bp->lock);
 
 	stats->block_size = bp->blk_size;
 	stats->block_num = bp->depth;
@@ -882,4 +922,6 @@ void wd_blockpool_stats(handle_t blockpool, struct wd_blockpool_stats *stats)
 		size += (iter->end - iter->begin + 1) * bp->mp->blk_size;
 	}
 	stats->mem_waste_rate = (size - bp->blk_size * bp->depth) * 100 / size;
+
+	wd_unspinlock(&bp->lock);
 }
