@@ -25,8 +25,8 @@
 
 #define __round_mask(x, y)		((__typeof__(x))((y)-1))
 #define round_down(x, y)		((x) & ~__round_mask(x, y))
-
 #define __maybe_unused			__attribute__((__unused__))
+#define WD_MEMPOOL_SIZE_MASK		(((unsigned long)1 << 12) - 1)
 
 struct wd_lock {
 	__u32 lock;
@@ -846,6 +846,11 @@ handle_t wd_mempool_create(size_t size, int node)
 {
 	struct mempool *mp;
 	int ret;
+
+	if (WD_MEMPOOL_SIZE_MASK & size) {
+		WD_ERR("mempool size should be aligned to 4KB\n");
+		return 0;
+	}
 
 	if (!size || node < 0 || node > numa_max_node()) {
 		return 0;

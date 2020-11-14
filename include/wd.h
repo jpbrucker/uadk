@@ -306,20 +306,18 @@ enum wd_page_type {
 
 /*
  * struct wd_mempool_stats - Use to dump statistics info about mempool
- * @is_huge_page: 0 huge page, 1 mmap + pin.
+ * @page_type: 0 huge page, 1 mmap + pin.
  * @page_size: Page size.
  * @pape_num: Page numbers in mempool.
- * @blk_size: Huge page case, small blocks will be made in each huge page,
- *	      this is the size of small block. Mmap + pin case, same with
- *	      page size.
- * @blk_num: Number of above small blocks in huge page case. Same with page
- *	     number in mmap + pin case.
- * @free_blk_num: Number of free blk.
- * @blk_usage_rate: There may be memory fragmentation. This shows the rate
- *                  of usage of blk in mempool. When blockpool allocates
- *                  continuous blk in mempool, it may fail as no continuous
- *                  blk in mempool, blk_usage_rate can help to show current
- *                  state. e.g. 30 is 30%.
+ * @blk_size: Memory in mempool will be divied into blocks with same size,
+ *	      this is size of each block. Currently it is 4KB fixed.
+ * @blk_num: Number of blocks in mempool.
+ * @free_blk_num: Number of free blocks in mempool.
+ * @blk_usage_rate: In wd_blockpool_create function, it gets memory from
+ *		    mempool by mempool blocks. As continuous blocks in mempool
+ *		    may be needed, wd_blockpool_create may fail. blk_usage_rate
+ * 		    helps to show the usage rate of mempool. It will be helpful
+ *		    to show the state of memory fragmentation. e.g. 30 is 30%.
  */
 struct wd_mempool_stats {
 	enum wd_page_type page_type;

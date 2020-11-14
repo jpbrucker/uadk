@@ -224,6 +224,7 @@ void *alloc_free_thread(void *data)
 
 void *blk_test_thread(void *data)
 {
+	printf("---ddd\n");
 	struct test_opt_per_thread *opt = data;
 	struct wd_blockpool_stats bp_stats = {0};
 	struct wd_mempool_stats mp_stats = {0};
@@ -241,6 +242,7 @@ void *blk_test_thread(void *data)
 		return (void *)-1;
 	}
 
+	printf("---add\n");
 	if (!opt->thread_num) {
 		sleep(opt->sleep_value);
 		/* fix me: need a opt? */
@@ -267,6 +269,14 @@ void *blk_test_thread(void *data)
 	wd_mempool_destory(mp);
 
 	return NULL;
+}
+
+static int test_mempool()
+{
+}
+
+static int test_blockpool()
+{
 }
 
 int main(int argc, char *argv[])
