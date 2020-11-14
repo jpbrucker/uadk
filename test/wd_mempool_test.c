@@ -222,9 +222,46 @@ void *alloc_free_thread(void *data)
 	return NULL;
 }
 
+static int test_blockpool(struct test_option *opt)
+{
+	struct test_opt_per_thread per_thread_opt[WD_MEM_MAX_THREAD] = {0};
+	pthread_t threads[WD_MEM_MAX_THREAD];
+	int i, bp_thread_num = opt->thread_num;
+	handle_t mp, bp;
+
+	mp = wd_mempool_create(opt->mp_size, opt->node);
+	if (!mp) {
+		printf("Fail to create mempool\n");
+		return (void *)-1;
+	}
+
+	bp = wd_blockpool_create(mp, opt->blk_size[0], opt->blk_num[0]);
+	if (!bp) {
+		printf("Fail to create blkpool\n");
+		return (void *)-1;
+	}
+
+	for (i = 0; i < bp_thread_num; i++) {
+		per_thread_opt[i].mp = mp;
+		per_thread_opt[i].bp = bp;
+		per_thread_opt[i].sleep_value = opt->sleep_value[i];
+
+		pthread_create(&threads[i], NULL, alloc_free_thread,
+			       &per_thread_opt[i]);
+	}
+
+	for (i = 0; i < bp_thread_num; i++) {
+		pthread_join(threads[i], NULL);
+	}
+
+	wd_blockpool_destory(bp);
+	wd_mempool_destory(mp);
+
+	return NULL;
+}
+
 void *blk_test_thread(void *data)
 {
-	printf("---ddd\n");
 	struct test_opt_per_thread *opt = data;
 	struct wd_blockpool_stats bp_stats = {0};
 	struct wd_mempool_stats mp_stats = {0};
@@ -242,27 +279,12 @@ void *blk_test_thread(void *data)
 		return (void *)-1;
 	}
 
-	printf("---add\n");
-	if (!opt->thread_num) {
-		sleep(opt->sleep_value);
-		/* fix me: need a opt? */
-		if (1) {
-			wd_mempool_stats(mp, &mp_stats);
-			wd_blockpool_stats(bp, &bp_stats);
-			dump_mp_bp(&mp_stats, &bp_stats);
-		}
-	} else {
-		/* create thread_num threads to allocate/free memory */
-		pthread_t threads[WD_MEM_MAX_THREAD];
-		int i;
-
-		for (i = 0; i < opt->thread_num; i++)
-			opt->mp = mp;
-			opt->bp = bp;
-			pthread_create(&threads[i], NULL, alloc_free_thread, &opt);
-		for (i = 0; i < opt->thread_num; i++) {
-			pthread_join(threads[i], NULL);
-		}
+	sleep(opt->sleep_value);
+	/* fix me: need a opt? */
+	if (1) {
+		wd_mempool_stats(mp, &mp_stats);
+		wd_blockpool_stats(bp, &bp_stats);
+		dump_mp_bp(&mp_stats, &bp_stats);
 	}
 
 	wd_blockpool_destory(bp);
@@ -271,38 +293,18 @@ void *blk_test_thread(void *data)
 	return NULL;
 }
 
-static int test_mempool()
-{
-}
-
-static int test_blockpool()
-{
-}
-
-int main(int argc, char *argv[])
+static int test_mempool(struct test_option *opt)
 {
 	struct test_opt_per_thread per_thread_opt[WD_MEM_MAX_THREAD] = {0};
 	pthread_t threads[WD_MEM_MAX_THREAD];
-	struct test_option opt = {0};
-	int i, ret, bp_thread_num;
-
-	ret = parse_cmd_line(argc, argv, &opt);
-	if (ret < 0)
-		return -1;
-
-	if (!opt.perf) {
-		bp_thread_num = opt.thread_num;
-	} else {
-		bp_thread_num = 1;
-	}
+	int i, bp_thread_num = opt->thread_num;
 
 	for (i = 0; i < bp_thread_num; i++) {
-		per_thread_opt[i].mp_size = opt.mp_size;
-		per_thread_opt[i].node = opt.node;
-		per_thread_opt[i].blk_size = opt.blk_size[i];
-		per_thread_opt[i].blk_num = opt.blk_num[i];
-		per_thread_opt[i].sleep_value = opt.sleep_value[i];
-		per_thread_opt[i].thread_num = !opt.perf ? 0 : opt.thread_num;
+		per_thread_opt[i].mp_size = opt->mp_size;
+		per_thread_opt[i].node = opt->node;
+		per_thread_opt[i].blk_size = opt->blk_size[i];
+		per_thread_opt[i].blk_num = opt->blk_num[i];
+		per_thread_opt[i].sleep_value = opt->sleep_value[i];
 
 		pthread_create(&threads[i], NULL, blk_test_thread,
 			       &per_thread_opt[i]);
@@ -313,4 +315,19 @@ int main(int argc, char *argv[])
 	}
 
 	return 0;
+}
+
+int main(int argc, char *argv[])
+{
+	struct test_option opt = {0};
+	int ret;
+
+	ret = parse_cmd_line(argc, argv, &opt);
+	if (ret < 0)
+		return -1;
+
+	if (!opt.perf)
+		return test_mempool(&opt);
+
+	return test_blockpool(&opt);
 }
