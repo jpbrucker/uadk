@@ -99,6 +99,7 @@ struct mempool {
 	int page_size;
 	int page_num;
 	int blk_size;
+	int blk_num;
 	/* numa node id */
 	int node;
 	/* fd for page pin */
@@ -821,7 +822,8 @@ static void free_mempool_memory(struct mempool *mp)
 
 static int init_mempool(struct mempool *mp)
 {
-	int bits = mp->page_size * mp->page_num / mp->blk_size;
+	/* size of mp should align to 4KB */
+	int bits = mp->size / mp->blk_size;
 	struct bitmap *bm;
 
 	bm = create_bitmap(bits);
@@ -829,6 +831,7 @@ static int init_mempool(struct mempool *mp)
 		return -1;
 	mp->bitmap = bm;
 	mp->free_blk_num = bits;
+	mp->blk_num = bits;
 
 	return 0;
 }
@@ -896,7 +899,7 @@ void wd_mempool_stats(handle_t mempool, struct wd_mempool_stats *stats)
 	stats->page_size = mp->page_size;
 	stats->page_num = mp->page_num;
 	stats->blk_size = mp->blk_size;
-	stats->blk_num = mp->page_num * mp->page_size / mp->blk_size;
+	stats->blk_num = mp->blk_num;
 	stats->free_blk_num = mp->free_blk_num;
 	stats->blk_usage_rate = (stats->blk_num - mp->free_blk_num) * 100 /
 				stats->blk_num;

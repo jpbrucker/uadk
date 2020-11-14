@@ -1,24 +1,25 @@
+/*
+ * We consider three problems: 1. Rate of memory usage;
+ * 2. performance of alloc/free; 3. memory fragmentation.
+ *
+ * 1. mempool create from huge page
+ * 2. mempool create from mmap + pin
+ *
+ * 3. mempool create from huge page, blk pool small block size
+ * 4. mempool create from huge page, blk pool big block size
+ *
+ * 5. mempool create from mmap + pin, blk pool small block size
+ * 6. mempool create from mmap + pin, blk pool big block size
+ */
 #include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <pthread.h>
 #include "../include/wd.h"
 
-#if 0
-We consider three problems: 1. Rate of memory usage;
-2. performance of alloc/free; 3. memory fragmentation.
-
-1. mempool create from huge page 
-2. mempool create from mmap + pin
-
-3. mempool create from huge page, blk pool small block size
-4. mempool create from huge page, blk pool big block size
-
-5. mempool create from mmap + pin, blk pool small block size
-6. mempool create from mmap + pin, blk pool big block size
-#endif
-
 #define WD_MEM_MAX_THREAD		20
+#define WD_MEM_MAX_BUF_SIZE		256
 
 struct test_option {
 	unsigned long mp_size;
@@ -43,33 +44,82 @@ struct test_opt_per_thread {
 
 static void show_help(void)
 {
-	printf(" --mp_size <size>  mempool size\n"
-	       " --node <node>     numa node of mempool\n"
+	printf(" --mp_size <size>    mempool size\n"
+	       " --node <node>       numa node of mempool\n"
 	       " --blk_size_array <\"size1 size2 ...\">\n"
-	       "                  size of each block pool\n "
+	       "                     size of each block pool\n"
 	       " --blk_num_array <\"num1 num2 ...\">\n"
-	       "                 block num of each block pool\n"
+	       "                     block num of each block pool\n"
 	       " --sleep_value <\"value1 value2 ...\">\n"
-	       "               test thread will sleep some time between\n"
-	       "               allocating and freeing memory, these values\n"
-	       "               are for this purpose\n"
-	       " --perf <mode> 0 for mempool, 1 for block pool\n"
+	       "                     test thread will sleep some time between\n"
+	       "                     allocating and freeing memory, these values\n"
+	       "                     are for this purpose\n"
+	       " --perf <mode>       0 for mempool, 1 for block pool\n"
 	       " --thread_num <mode> if perf mode 0, thread is for blockpool\n"
 	       "                     create/destory from mempool. if perf\n"
 	       "                     mode 1, thread is for alloc/free memory\n"
 	       "                     in blockpool\n"
-	       " --help show this help\n");
+	       " --help              show this help\n");
 }
 
-static void parse_value_in_string(unsigned long *array, unsigned long num,
+static int parse_value_in_string(unsigned long *array, unsigned long num,
 				  char *string)
 {
+	char str[WD_MEM_MAX_BUF_SIZE];
+	char *tmp, *str_t;
+	int i = 0;
+
+	strncpy(str, string, WD_MEM_MAX_BUF_SIZE - 1);
+	str[WD_MEM_MAX_BUF_SIZE - 1] = '\0';
+	str_t = str;
+
+	while ((tmp = strtok(str_t, " ")) && i < num) {
+		array[i++] = strtol(tmp, NULL, 0);
+		str_t = NULL;
+	}
+
+	if (i == num) {
+		WD_ERR("Input parameter more than %lu\n", num);
+		return -1;
+	}
+
+	return 0;
+}
+
+void dump_parse(struct test_option *opt)
+{
+	int i;
+
+	printf(" ----> dump input parse <----\n");
+	printf("mp_size: %lu\n", opt->mp_size);
+	printf("node: %d\n", opt->node);
+
+	printf("blk size: ");
+	for (i = 0; i < opt->thread_num; i++) {
+		printf("%lu ", opt->blk_size[i]);
+	}
+	printf("\n");
+
+	printf("blk num: ");
+	for (i = 0; i < opt->thread_num; i++) {
+		printf("%lu ", opt->blk_num[i]);
+	}
+	printf("\n");
+
+	printf("sleep value: ");
+	for (i = 0; i < opt->thread_num; i++) {
+		printf("%lu ", opt->sleep_value[i]);
+	}
+	printf("\n");
+
+	printf("perf: %lu\n", opt->perf);
+	printf("thread_num: %lu\n\n", opt->thread_num);
 }
 
 static int parse_cmd_line(int argc, char *argv[], struct test_option *opt)
 {
         int option_index = 0;
-	int ret, c;
+	int c;
 
         static struct option long_options[] = {
             {"mp_size", required_argument, 0,  1},
@@ -115,21 +165,22 @@ static int parse_cmd_line(int argc, char *argv[], struct test_option *opt)
 			break;
 		case 8:
 			show_help();
-			ret = -1;
-			break;
+			return -1;
 		default:
-
 			printf("bad input parameter, exit\n");
-			exit(-1);
+			show_help();
+			return -1;
 		}
 	}
 
+	dump_parse(opt);
 	return 0;
 }
 
 static void dump_mp_bp(struct wd_mempool_stats *mp_s,
 		       struct wd_blockpool_stats *bp_s)
 {
+	printf(" ----> dump mp bp info <----\n");
 	printf("mp page_type        : %s\n", mp_s->page_type ? "pin" : "hugepage");
 	printf("mp page_size        : %lu\n", mp_s->page_size);
 	printf("mp page_num         : %lu\n", mp_s->page_num);
@@ -142,7 +193,7 @@ static void dump_mp_bp(struct wd_mempool_stats *mp_s,
 	printf("bp block_num        : %lu\n", bp_s->block_num);
 	printf("bp free_block_num   : %lu\n", bp_s->free_block_num);
 	printf("bp block_usage_rate : %lu%%\n", bp_s->block_usage_rate);
-	printf("bp mem_waste_rate   : %lu%%\n", bp_s->mem_waste_rate);
+	printf("bp mem_waste_rate   : %lu%%\n\n", bp_s->mem_waste_rate);
 }
 
 void *alloc_free_thread(void *data)
@@ -220,8 +271,8 @@ void *blk_test_thread(void *data)
 
 int main(int argc, char *argv[])
 {
-	pthread_t threads[WD_MEM_MAX_THREAD];
 	struct test_opt_per_thread per_thread_opt[WD_MEM_MAX_THREAD] = {0};
+	pthread_t threads[WD_MEM_MAX_THREAD];
 	struct test_option opt = {0};
 	int i, ret, bp_thread_num;
 
@@ -243,7 +294,8 @@ int main(int argc, char *argv[])
 		per_thread_opt[i].sleep_value = opt.sleep_value[i];
 		per_thread_opt[i].thread_num = !opt.perf ? 0 : opt.thread_num;
 
-		pthread_create(&threads[i], NULL, blk_test_thread, &opt);
+		pthread_create(&threads[i], NULL, blk_test_thread,
+			       &per_thread_opt[i]);
 	}
 
 	for (i = 0; i < bp_thread_num; i++) {
