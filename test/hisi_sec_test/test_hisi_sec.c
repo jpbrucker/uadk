@@ -1453,6 +1453,8 @@ static int sec_digest_sync_once(void)
 	int ret;
 	void *bak_in = NULL;
 
+	printf("gzf %s pid=%d\n", __func__, getpid());
+
 	/* config setup */
 	ret = init_digest_ctx_config(CTX_TYPE_ENCRYPT, CTX_MODE_SYNC);
 	if (ret) {
@@ -1521,6 +1523,21 @@ static int sec_digest_sync_once(void)
 		cnt--;
 	}
 	gettimeofday(&cur_tval, NULL);
+
+	static int run_time = 0;
+	if (run_time == 0) {
+		int pid;
+
+		run_time++;
+		pid = fork();
+		if (pid == 0) {
+			fprintf(stderr, "child pid=%d\n", getpid());
+			sec_digest_sync_once();
+
+		} else {
+			fprintf(stderr, "parent pid=%d\n", getpid());
+		}
+	}
 
 	time_used = (float)((cur_tval.tv_sec - start_tval.tv_sec) * 1000000 +
 		cur_tval.tv_usec - start_tval.tv_usec);
