@@ -1453,7 +1453,6 @@ static int sec_digest_sync_once(void)
 	int ret;
 	void *bak_in = NULL;
 
-	printf("gzf %s pid=%d\n", __func__, getpid());
 
 	/* config setup */
 	ret = init_digest_ctx_config(CTX_TYPE_ENCRYPT, CTX_MODE_SYNC);
@@ -1525,14 +1524,17 @@ static int sec_digest_sync_once(void)
 	gettimeofday(&cur_tval, NULL);
 
 	static int run_time = 0;
+	static int no_release = 0;
 	if (run_time == 0) {
 		int pid;
 
 		run_time++;
 		pid = fork();
 		if (pid == 0) {
-			fprintf(stderr, "child pid=%d\n", getpid());
+			fprintf(stderr, "child pid=%d", getpid());
+
 			sec_digest_sync_once();
+			no_release = 1;
 
 		} else {
 			fprintf(stderr, "parent pid=%d\n", getpid());
@@ -1556,7 +1558,8 @@ out:
 		free(req.out);
 	if (h_sess)
 		wd_digest_free_sess(h_sess);
-	digest_uninit_config();
+	if (!no_release)
+		digest_uninit_config();
 
 	return ret;
 }
