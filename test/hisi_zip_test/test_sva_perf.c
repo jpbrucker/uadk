@@ -17,7 +17,17 @@
 #include <linux/perf_event.h>
 
 #include "test_lib.h"
+#include "thp-utils.h"
 #include "sched_sample.h"
+
+enum thp_tests {
+	THP_TEST_ALLOC	= 1,
+	THP_TEST_SPLIT,
+	THP_TEST_COLLAPSE,
+	THP_TEST_COLLAPSE_DMA,
+
+	MAX_THP_TESTS,
+};
 
 enum hizip_stats_variable {
 	ST_SETUP_TIME,
@@ -170,6 +180,7 @@ static unsigned long long perf_event_put(int *perf_fds, int nr_fds)
 	return total;
 }
 
+__attribute__((unused))
 static void enable_thp(struct test_options *opts,
 		       struct hizip_test_info *info)
 {
@@ -302,6 +313,112 @@ static void stat_end(struct hizip_test_info *info)
 	stats->v[ST_FAULTS] = stats->v[ST_MAJFLT] + stats->v[ST_MINFLT];
 }
 
+static int thp_test(struct test_options *opts, size_t size, void **out_buf)
+{
+	int ret = -EINVAL;
+	void *buf = NULL;
+	void *buf_base = (void *)0x10000000;
+	size_t buf_size = ALIGN(size, HPAGE_SIZE);
+	int page = 0;
+	size_t buf_pages = buf_size >> PAGE_SHIFT;
+
+
+	printf("THP test %d (%zu -> %zu)\n", opts->thp_num, size, buf_size);
+
+	switch (opts->thp_num) {
+	case THP_TEST_ALLOC:
+		/*
+		 * Check that a large mmap results in a huge page allocation
+		 */
+		buf = map_huge_memory(buf_base, buf_size);
+		if (!buf)
+			return -ENOMEM;
+
+		if (nr_huge(buf)) {
+			pr_err("buf is already huge!\n");
+			return -EFAULT;
+		}
+		ret = 0;
+		break;
+	case THP_TEST_SPLIT:
+		/*
+		 * Check that unmapping a fragment of a huge page causes a split
+		 */
+		buf = map_and_set_memory(buf_base, HPAGE_SIZE);
+		if (!buf)
+			return -ENOMEM;
+
+		if (nr_huge(buf) != HPAGE_SIZE) {
+			pr_err("THP didn't alloc (%zu != %u)\n",
+			       nr_huge(buf), HPAGE_SIZE);
+			return -EFAULT;
+		}
+		/* This should do a thp_split_pmd */
+		munmap(buf + PAGE_SIZE, buf_size - PAGE_SIZE);
+
+		if (nr_huge(buf)) {
+			pr_err("THP didn't split\n");
+			return -EFAULT;
+		}
+
+		pr_info("Split test successful\n");
+		ret = 1;
+		break;
+	case THP_TEST_COLLAPSE:
+		/* 
+		 * Create fragments of a huge page, and let khugepaged collapse
+		 * them
+		 */
+		buf = buf_base;
+		if (map_huge_single(buf, buf_pages, false))
+			return -ENOMEM;
+		if (nr_huge(buf)) {
+			pr_err("buf is already huge!\n");
+			return -EFAULT;
+		}
+		/*
+		 * Since mm adds pages to the LRU by pagevec batch, make sure
+		 * that the pagevec containing the last few pages of
+		 * 0x200000000-0x20200000 is committed by __lru_cache_add. To be
+		 * collapsable, pages must have the LRU bit.
+		 */
+		//lru_sync(LRU_SYNC_MMAP);
+		while (nr_huge(buf) < buf_size) {
+			/* Keep pages young */
+			*(volatile uint8_t *)(buf + PAGE(page)) = page;
+			page = (page + 1) % buf_pages;
+		}
+
+		pr_info("Collapse test successful\n");
+		ret = 1;
+		break;
+	case THP_TEST_COLLAPSE_DMA:
+		/*
+		 * Same as THP_TEST_COLLAPSE but let DMA cause the collapsing.
+		 * khugepaged_init() sets max_ptes_none to a suitable value,
+		 * ensuring that the pages don't get collapsed prematurely.
+		 */
+		buf = buf_base;
+		if (map_huge_single(buf, buf_pages, true))
+			return -ENOMEM;
+		if (nr_huge(buf)) {
+			pr_err("buf is already huge!\n");
+			return 1;
+		}
+
+		//lru_sync(LRU_SYNC_MMAP);
+		ret = 0;
+		break;
+	}
+	if (ret == 0)
+		*out_buf = buf;
+	else if (ret == 1)
+		/* Avoid gory uninit output */
+		opts->display_stats = STATS_NONE;
+	return ret;
+}
+
+
 static int run_one_test(struct test_options *opts, struct hizip_stats *stats)
 {
 	static bool event_unavailable;
@@ -334,7 +451,19 @@ static int run_one_test(struct test_options *opts, struct hizip_stats *stats)
 	 * hizip_prepare_random_input_data().
 	 */
 	defl_size = opts->total_len * EXPANSION_RATIO;
-	defl_buf = mmap_alloc(defl_size);
+	if (opts->thp_num) {
+		defl_buf = NULL;
+		ret = thp_test(opts, defl_size, &defl_buf);
+		if (ret < 0) {
+			goto out_with_infl_buf;
+		} else if (ret > 0) {
+			/* Test already successful */
+			ret = 0;
+			goto out_with_infl_buf;
+		}
+	} else {
+		defl_buf = mmap_alloc(defl_size);
+	}
 	if (!defl_buf) {
 		ret = -ENOMEM;
 		goto out_with_infl_buf;
@@ -362,7 +491,7 @@ static int run_one_test(struct test_options *opts, struct hizip_stats *stats)
 		info.out_size = infl_size;
 	}
 
-	enable_thp(opts, &info);
+	//enable_thp(opts, &info);
 
 	if (!event_unavailable &&
 	    perf_event_get("iommu/dev_fault", &perf_fds, &nr_fds)) {
@@ -398,6 +527,35 @@ static int run_one_test(struct test_options *opts, struct hizip_stats *stats)
 	attach_threads(&info);
 
 	stat_end(&info);
+
+#define max_attempts 10000
+	static int attempts = max_attempts;
+	switch (opts->thp_num) {
+	case THP_TEST_ALLOC:
+		if (nr_huge(defl_buf) != ALIGN(defl_size, HPAGE_SIZE))
+			pr_err("THP not enabled\n");
+		else
+			pr_info("THP is supported\n");
+		break;
+	case THP_TEST_COLLAPSE_DMA:
+		while (!nr_huge(defl_buf) && --attempts) {
+			create_threads(&info);
+			attach_threads(&info);
+			//lru_sync(LRU_SYNC_MMAP);
+		}
+		if (attempts == 0)
+			pr_err("Did not collaps\n");
+		else
+			pr_info("THP DMA collapsed after %d attemps!\n", max_attempts - attempts);
+
+		pr_info("Once more for good measure...\n");
+		for (int i = 0; i < 100; i++) {
+			create_threads(&info);
+			attach_threads(&info);
+		}
+		pr_info("OK.\n");
+	}
+
 	stats->v[ST_IOPF] = perf_event_put(perf_fds, nr_fds);
 
 	if (opts->faults & INJECT_TLB_FAULT) {
@@ -632,9 +790,9 @@ static int run_test(struct test_options *opts, FILE *source, FILE *dest)
 	int ret;
 	int n = opts->run_num;
 	int w = opts->warmup_num;
-	struct hizip_stats avg;
-	struct hizip_stats std;
-	struct hizip_stats variation;
+	struct hizip_stats avg = {};
+	struct hizip_stats std = {};
+	struct hizip_stats variation = {};
 	struct hizip_stats stats[n];
 
 	if(opts->is_file) {
@@ -755,8 +913,9 @@ int main(int argc, char **argv)
 	};
 	int show_help = 0;
 	int opt;
+	int ret;
 
-	while ((opt = getopt(argc, argv, COMMON_OPTSTRING "f:o:w:k:r:")) != -1) {
+	while ((opt = getopt(argc, argv, COMMON_OPTSTRING "f:o:w:k:r:T:")) != -1) {
 		switch (opt) {
 		case 'f':
 			if (strcmp(optarg, "none") == 0) {
@@ -774,9 +933,6 @@ int main(int argc, char **argv)
 			switch (optarg[0]) {
 			case 'p':
 				opts.option |= PERFORMANCE;
-				break;
-			case 't':
-				opts.option |= TEST_THP;
 				break;
 			case 'z':
 				opts.option |= TEST_ZLIB;
@@ -798,6 +954,13 @@ int main(int argc, char **argv)
 			opts.children = strtol(optarg, NULL, 0);
 			if (opts.children < 0)
 				show_help = 1;
+			break;
+		case 'T':
+			opts.option |= TEST_THP;
+			opts.thp_num = strtol(optarg, NULL, 0);
+			SYS_ERR_COND(opts.thp_num <= 0 ||
+				     opts.thp_num >= MAX_THP_TESTS,
+				     "thp test must be >0, <%d\n", MAX_THP_TESTS);
 			break;
 		case 'k':
 			switch (optarg[0]) {
@@ -824,6 +987,8 @@ int main(int argc, char **argv)
 	signal(SIGBUS, handle_sigbus);
 
 	hizip_test_adjust_len(&opts);
+	if (opts.thp_num)
+		khugepaged_init();
 
 	SYS_ERR_COND(show_help || optind > argc,
 		     COMMON_HELP
@@ -837,6 +1002,7 @@ int main(int argc, char **argv)
 		     "                  'zlib' use zlib instead of the device\n"
 		     "  -w <num>      number of warmup runs\n"
 		     "  -r <children> number of children to create\n"
+		     "  -T <num>      THP test number\n"
 		     "  -k <mode>     kill thread\n"
 		     "                  'bind' kills the process after bind\n"
 		     "                  'tlb' tries to access an unmapped buffer\n"
@@ -844,5 +1010,8 @@ int main(int argc, char **argv)
 		     argv[0]
 		    );
 
-	return run_test(&opts, stdin, stdout);
+	ret = run_test(&opts, stdin, stdout);
+	if (opts.thp_num)
+		khugepaged_stats();
+	return ret;
 }

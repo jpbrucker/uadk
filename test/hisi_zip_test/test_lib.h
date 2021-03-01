@@ -12,6 +12,11 @@
 #include <sys/stat.h>
 #include "wd_comp.h"
 
+#ifndef ALIGN
+#define __ALIGN_MASK(x, mask)  (((x) + (mask)) & ~(mask))
+#define ALIGN(x, a) __ALIGN_MASK(x, (typeof(x))(a)-1)
+#endif
+
 #define SYS_ERR_COND(cond, msg, ...) \
 do { \
 	if (cond) { \
@@ -78,6 +83,7 @@ struct test_options {
 #define INJECT_TLB_FAULT	(1UL << 2)
 	unsigned long faults;
 
+	int thp_num;
 };
 
 struct hizip_test_info {
@@ -206,4 +212,8 @@ static inline void hizip_test_adjust_len(struct test_options *opts)
 
 int parse_common_option(const char opt, const char *optarg,
 			struct test_options *opts);
+
+/* Transparent huge page tests */
+int map_huge_single(void *buf, size_t nr_pages, bool half);
+
 #endif /* TEST_LIB_H_ */
